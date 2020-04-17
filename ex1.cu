@@ -41,8 +41,7 @@ struct task_serial_context *task_serial_init()
 {
     auto context = new task_serial_context;
     //TODO: allocate GPU memory for a single input image and a single output image
-    CUDA_CHECK( cudaMalloc(&context.gpu
-_in_img, IMG_HEIGHT * IMG_WIDTH) );
+    CUDA_CHECK( cudaMalloc(&context.gpu_in_img, IMG_HEIGHT * IMG_WIDTH) );
     CUDA_CHECK( cudaMalloc(&context.gpu_out_img, IMG_HEIGHT * IMG_WIDTH) );
 
     return context;
