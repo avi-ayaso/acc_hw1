@@ -8,11 +8,10 @@ __device__ void prefix_sum(int *arr , int len) {
     
     int thIdx = threadIdx.x;
     int inc;
-    int idx;
     
     for(int stride = 1 ; stride < len ; stride *= 2){
                 
-        if(thIdx >= stride &&  thiDx < len){
+        if(thIdx >= stride &&  thIdx < len){
             inc = arr[thIdx - stride];
         }    
         __syncthreads();
@@ -86,8 +85,8 @@ struct task_serial_context *task_serial_init()
 {
     auto context = new task_serial_context;
     //allocate GPU memory for a single input image and a single output image
-    CUDA_CHECK( cudaMalloc(&context->gpu_in_img, IMG_HEIGHT * IMG_WIDTH) );
-    CUDA_CHECK( cudaMalloc(&context->gpu_out_img, IMG_HEIGHT * IMG_WIDTH) );
+    CUDA_CHECK( cudaMalloc(&context->gpu_in_img, N_IMAGES * IMG_HEIGHT * IMG_WIDTH) );
+    CUDA_CHECK( cudaMalloc(&context->gpu_out_img, N_IMAGES * IMG_HEIGHT * IMG_WIDTH) );
 
     return context;
 }
@@ -123,8 +122,8 @@ void task_serial_free(struct task_serial_context *context)
 /* Bulk GPU context struct with necessary CPU / GPU pointers to process all the images */
 struct gpu_bulk_context {
     // TODO define bulk-GPU memory buffers
-    uchar *gpu_in_imgs;
-    uchar *gpu_out_imgs;
+    uchar *gpu_in_img;
+    uchar *gpu_out_img;
 };
 
 /* Allocate GPU memory for all the input and output images.
@@ -135,8 +134,8 @@ struct gpu_bulk_context *gpu_bulk_init()
     auto context = new gpu_bulk_context;
 
     //TODO: allocate GPU memory for a all input images and all output images
-    CUDA_CHECK( cudaMalloc(&context->gpu_in_imgs, N_IMAGES * IMG_HEIGHT * IMG_WIDTH) );
-    CUDA_CHECK( cudaMalloc(&context->gpu_out_imgs, N_IMAGES * IMG_HEIGHT * IMG_WIDTH) );
+    CUDA_CHECK( cudaMalloc(&context->gpu_in_img, N_IMAGES * IMG_HEIGHT * IMG_WIDTH) );
+    CUDA_CHECK( cudaMalloc(&context->gpu_out_img, N_IMAGES * IMG_HEIGHT * IMG_WIDTH) );
     return context;
 }
 
@@ -145,13 +144,13 @@ struct gpu_bulk_context *gpu_bulk_init()
 void gpu_bulk_process(struct gpu_bulk_context *context, uchar *images_in, uchar *images_out)
 {
     //   1. copy all input images from images_in to the GPU memory you allocated
-    CUDA_CHECK( cudaMemcpy(context->gpu_in_imgs , images_in, N_IMAGES * IMG_HEIGHT * IMG_WIDTH, cudaMemcpyHostToDevice) );
+    CUDA_CHECK( cudaMemcpy(context->gpu_in_img , images_in, N_IMAGES * IMG_HEIGHT * IMG_WIDTH, cudaMemcpyHostToDevice) );
 
     //   2. invoke a kernel with N_IMAGES threadblocks, each working on a different image
-    process_image_kernel<<<N_IMAGES , 1024>>>(context->gpu_in_imgs , context->gpu_out_imgs);
+    process_image_kernel<<<N_IMAGES , 1024>>>(context->gpu_in_img , context->gpu_out_img);
 
     //   3. copy output images from GPU memory to images_out
-    CUDA_CHECK( cudaMemcpy(images_out, context->gpu_out_imgs , N_IMAGES * IMG_HEIGHT * IMG_WIDTH, cudaMemcpyDeviceToHost) );
+    CUDA_CHECK( cudaMemcpy(images_out, context->gpu_out_img , N_IMAGES * IMG_HEIGHT * IMG_WIDTH, cudaMemcpyDeviceToHost) );
 
 }
 
@@ -159,8 +158,8 @@ void gpu_bulk_process(struct gpu_bulk_context *context, uchar *images_in, uchar 
 void gpu_bulk_free(struct gpu_bulk_context *context)
 {
     //free resources allocated in gpu_bulk_init
-    CUDA_CHECK(cudaFree(context->gpu_in_imgs));
-    CUDA_CHECK(cudaFree(context->gpu_out_imgs));
+    CUDA_CHECK(cudaFree(context->gpu_in_img));
+    CUDA_CHECK(cudaFree(context->gpu_out_img));
     free(context);
 
 }
