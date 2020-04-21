@@ -25,70 +25,38 @@ __device__ void prefix_sum(int *arr , int len) {
     return; 
 }
 
-__device__ void map_calc(int *map ,int *cdf, int idx){
+__device__ void map_calc(uchar *map ,int *cdf, int idx){
     float map_value = IMG_HEIGHT * IMG_WIDTH;
     if(idx < HISTOGRAM_SIZE){
         map[idx] = ((uchar)(N_COLORS * (cdf[idx] /map_value))) * (256 / N_COLORS);
     }
 }
 
-__global__ void process_image_kernel(uchar *all_in, uchar *all_out) {
-    
-    __shared__ int histogram[HISTOGRAM_SIZE];
-    int *cdf = histogram; // this is for readability we dont need more than one shared array
-    int *map = histogram; // this is for readability we dont need more than one shared array
-    uchar local[MAX_CHUNK_SIZE] = {0};
+__global__ void process_image_kernel(uchar *all_in, uchar *all_out){
     int thIdx = threadIdx.x;
-    int chunkSize = (IMG_HEIGHT * IMG_WIDTH) / blockDim.x;
-    int internal_offset = thIdx * chunkSize;
-    int image_offset = blockIdx.x * IMG_HEIGHT * IMG_WIDTH;
-    int image_end =  image_offset + IMG_HEIGHT * IMG_WIDTH;
-    int offset = image_offset + internal_offset;
-    int *int_loc = (int*)local;
-    int *img_out = (int*)all_out;
-    int *img_in = (int*)all_in;
-    int lim = chunkSize / (sizeof(int)/sizeof(uchar));
-    int int_offset = offset / sizeof(int);
-    int i;
-
-    
-    
-    //initialize histogram in parallel
-    if(thIdx < HISTOGRAM_SIZE){
+    int offset = IMG_WIDTH * IMG_HEIGHT * blockIdx.x + thIdx;
+    __shared__ int histogram[HISTOGRAM_SIZE];
+    __shared__ uchar map[HISTOGRAM_SIZE];
+    int * cdf = histogram;
+    if (thIdx < HISTOGRAM_SIZE) {
         histogram[thIdx] = 0;
     }
     __syncthreads();
-
-    //copy global data in words with sizeof(int) instead of bytes
-    for(i = 0 ; i < lim ; i++){
-        int_loc[i] = img_in[i + int_offset];
-    }
-    
-    //build histogram
-    for(i = 0 ; i < chunkSize && ((i + offset) < image_end) ; i++){
-        atomicAdd(&histogram[local[i]], 1);
+    for(int j = 0; j < IMG_WIDTH * IMG_HEIGHT; j += blockDim.x){
+        int pixelValue = all_in[offset + j];
+        atomicAdd(histogram + pixelValue, 1);
     }
     __syncthreads();
-    
-    //get the cdf
-    prefix_sum(cdf , HISTOGRAM_SIZE);
-
-    //get the new color quantizer
+    prefix_sum(histogram, HISTOGRAM_SIZE);
     map_calc(map ,cdf,thIdx);
     __syncthreads();
-    
-    //create new image
-    // for(i = 0 ; i < chunkSize && ((i + offset) < image_end) ; i++){
-    //     all_out[i + offset] = map[local[i]];
-    // }
-    for(i = 0 ; i < chunkSize && ((i + offset) < image_end) ; i++){
-        local[i] = map[local[i]];
-    }   
-   
-    for(i = 0 ; i < lim ; i++){
-        img_out[i + int_offset] = int_loc[i]; 
+    for(int j = 0; j < IMG_WIDTH * IMG_HEIGHT; j += blockDim.x){
+        int pixelValue = all_in[offset + j];
+        all_out[offset + j] = map[pixelValue];
     }
+    return;
 }
+
 
 /* Task serial context struct with necessary CPU / GPU pointers to process a single image */
 struct task_serial_context {
@@ -117,16 +85,15 @@ struct task_serial_context *task_serial_init()
  * provided output host array */
 void task_serial_process(struct task_serial_context *context, uchar *images_in, uchar *images_out)
 {
+    
     //TODO: in a for loop:
     int offset = 0;
     for(int i = 0 ; i < N_IMAGES ; i++ , offset += IMG_HEIGHT * IMG_WIDTH){
         //   1. copy the relevant image from images_in to the GPU memory you allocated
         // offset = i * IMG_HEIGHT * IMG_WIDTH ;
         CUDA_CHECK( cudaMemcpyAsync(context->gpu_in_img[i] , images_in + offset , IMG_HEIGHT * IMG_WIDTH, cudaMemcpyHostToDevice , context->streams[i]) );
-       
         //   2. invoke GPU kernel on this image  
         process_image_kernel<<<1 , 1024 , 0 , context->streams[i]>>>(context->gpu_in_img[i] , context->gpu_out_img[i]);
-
         //   3. copy output from GPU memory to relevant location in images_out_gpu_serial
         CUDA_CHECK( cudaMemcpyAsync(images_out + offset , context->gpu_out_img[i] , IMG_HEIGHT * IMG_WIDTH, cudaMemcpyDeviceToHost , context->streams[i]) );
     }
