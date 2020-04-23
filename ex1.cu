@@ -2,7 +2,7 @@
 
 #define VEC_SIZE 256
 #define HISTOGRAM_SIZE 256
-#define MAX_CHUNK_SIZE 256
+
 
 
 
